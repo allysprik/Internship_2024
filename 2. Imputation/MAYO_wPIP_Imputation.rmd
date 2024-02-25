@@ -1,0 +1,151 @@
+### Author: Ally Sprik
+### Last-updated: 25-02-2024
+
+Goal of this notebook is to impute a combined PIPENDO and MAYO dataset using the Bayesian network model.
+This will then be split afterwards to create a MAYO imputed dataset, based on PIPENDO
+
+
+```{r}
+library(bnlearn)
+library(Rgraphviz)
+
+# The necessary subsets are created in the data-cleaning.R
+# Transform the modelstring (bayesian network) to Directed Acyclic Graph
+
+dag = paste("[MyometrialInvasion|PostoperativeGrade][MRI_MI|MyometrialInvasion]",
+            "[Cytology|PostoperativeGrade]",
+            "[PreoperativeGrade]",
+            "[PostoperativeGrade|PreoperativeGrade]",
+            "[FIGO|PostoperativeGrade]",
+            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",
+            "[CA125|LNM][CTMRI|CA125]",
+            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",
+            "[p53|LNM:PostoperativeGrade:L1CAM]",
+            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",
+            "[L1CAM|LNM:PostoperativeGrade:PR]",
+            "[Platelets|LNM]",
+            "[MSI|LNM:PostoperativeGrade]",
+            "[POLE|LNM:PostoperativeGrade]",
+            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",
+            "[Chemotherapy|PostoperativeGrade]",
+            "[Radiotherapy|MyometrialInvasion]",
+            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",
+            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",
+            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
+
+# dagmodel: pre-defined directed acyclic graph (DAG) structure
+dagmodel = model2network(dag)
+
+# Plot the Graphs
+graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
+
+```
+
+
+```{r}
+MAYO = read.csv(file = "0.1. Cleaned_data/MAYO_subdag.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
+PIP = read.csv(file = "0.1. Cleaned_data/Casper_PIPENDO_Cleaned.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
+
+# Change LNM column name to LNM_o
+# Change LNM_micromacro column name to LNM in MAYO
+# colnames(MAYO)[colnames(MAYO)=="LNM"] <- "LNM_o"
+# colnames(MAYO)[colnames(MAYO)=="LNM_micromacro"] <- "LNM"
+
+# Create NA columns in PIP for the variables that are not present in PIP
+# Intersect the column names of MAYO and PIP
+common = intersect(colnames(MAYO), colnames(PIP))
+# Create a list of column names that are not present in PIP
+not_in_PIP = setdiff(colnames(MAYO), common)
+not_in_MAYO = setdiff(colnames(PIP), common)
+# Create NA columns in PIP for the variables that are not present in PIP
+for (i in 1:length(not_in_PIP)) {
+  PIP[,not_in_PIP[i]] <- NA
+}
+for (i in 1:length(not_in_MAYO)) {
+  MAYO[,not_in_MAYO[i]] <- NA
+}
+
+# concatenate MAYO and PIP
+subsetDAG = rbind(MAYO, PIP)
+subsetDAG = subsetDAG[nodes(dagmodel)]
+attach(subsetDAG)
+
+```
+```{r}
+# fittedDAG: the fitted Bayesian network model resulting from bn.fit()
+# bn.fit(): parameter learning to estimate conditional probabilities
+#         : method - Bayesian estimation; structure - dagmodel; data - subsetDAG
+fittedDAG = bn.fit(dagmodel, data = subsetDAG, method = "bayes")
+# graphviz.chart(fittedDAG, type = "barprob")
+
+# 2. Imputation
+imputeddata = impute(fittedDAG, subsetDAG, method = "bayes-lw", n = 5000)
+
+fittedDAG = bn.fit(dagmodel, data = imputeddata, method = "bayes")
+
+class(imputeddata)
+
+# Double-Check whether any NA present
+sapply(imputeddata, function(x) sum(is.na(x)))
+
+summary(imputeddata)
+
+
+# Select only the MAYO part of the imputed data
+imputeddata <- imputeddata[1:nrow(MAYO),]
+subsetDAG <- subsetDAG[1:nrow(MAYO),]
+
+write.table(imputeddata, file = "0.2. Imputed_data/MAYO-imputed-complete.csv", append = FALSE,
+            quote = TRUE, sep = ";", col.names = TRUE, row.names = FALSE)
+
+
+```
+
+
+```{r}
+
+# Predict CA125 subsetDAG using the network and preoperative variables
+# Get the fold
+evidence_columns = c("PreoperativeGrade", "LVSI", "CA125",  "ER", "PR", "p53", "L1CAM", "Platelets")
+
+test <- subsetDAG
+# Get the network
+network <- as.grain(fittedDAG)
+# Get the nodes
+nodenames <- names(network$cptlist)
+# Common set of nodenames and evidence columns
+common <- intersect(nodenames, evidence_columns)
+# Get the test data
+test <- as.data.frame(lapply(test[,common], as.factor))
+# Get the predictions
+predictions <- list()
+
+
+for (j in 1:nrow(test)){
+  evidence <- as.list(test[j,])
+  evidence <- as.data.frame(evidence[!is.na(evidence)])
+  tryCatch({
+    prediction <- predict(network, response ="CA125", newdata = evidence) # Select the yes value from the nodes to make life easier
+  }, error = function(e) {
+    print(j)
+    print(e)
+  })
+
+  predictions$CA125[j] <- prediction$pred$CA125[1]
+}
+
+# Add the predictions to the test data
+MAYO$CA125 <- predictions$CA125
+
+# Save the test data
+write.table(MAYO, file = "0.2. Imputed_data/MAYO-EM-CA125-Imp.csv", append = FALSE,
+            quote = TRUE, sep = ";", col.names = TRUE, row.names = FALSE)
+```
+
+```{r}
+
+# drop all rows that are completely NA can still have NA in a column
+subsetDAG.o <- subsetDAG[rowSums(is.na(subsetDAG)) != ncol(subsetDAG),]
+
+
+```

@@ -1,0 +1,273 @@
+Author: Ally Sprik
+Date: 25-01-2024
+
+Summary:
+In this file the Brno Dataset will be loaded and combined with the training set in KFolds, the model will then be trained and evaluated on each of the folds. As well as comparing the results to the results of the model trained on the training set only on each of the Folds. The results will be saved in a csv file for each of the folds, to be used in python for analysis.
+
+
+### Load Libraries and Data
+
+```{r}
+library(tidyverse)
+library(caret)
+library(bnlearn)
+library(dplyr)
+library(Rgraphviz)
+library(gRain)
+
+# Load the data
+df_or <- read.csv("0.1. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+df_brno <- read.csv("0.1. Cleaned_data/Cleaned_Brno_model_complete.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+# change name FIGO surgical to FIGO
+colnames(df_brno)[colnames(df_brno) == "FIGO_surgical"] <- "FIGO"
+
+# Create NA columns for the columns that are not in the Brno dataset
+df_brno["CTMRI"] <- NA
+
+# Get the columns that are in both datasets
+common_cols <- intersect(colnames(df_or), colnames(df_brno))
+
+
+df_or <- df_or[,common_cols]
+df_brno <- df_brno[,common_cols]
+
+# Load networks
+dag_Or <- model2network(modelstring(read.net("0.3. Original_Casper_files/Results/Casper_fitted_952+Brno.net")))
+dag_NoPlat_NoRest <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_original_952+Brno.net")))
+dag_NoPlat_MRI <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_AddMRIMI_fitted_952+Brno.net")))
+dag_NoPlat_TCGA <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_AddTCGA_1_fitted_952+Brno.net")))
+dag_NoPlat_TCGA_MRI <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_AddMRIMITCGA_fitted_952+Brno.net")))
+dag_Plat_NoRest <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WP_original_952+Brno.net")))
+dag_Plat_TCGA_MRI <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WP_all_952+Brno.net")))
+
+```
+
+```{r}
+folds <- createFolds(df_brno$LNM, k =5, list=TRUE, returnTrain = TRUE)
+
+
+```
+
+```{r}
+
+testsets <- list()
+for (i in 1:6){
+  test <- df_brno[-folds[[i]],]
+  testsets[[i]] <- test
+}
+
+```
+
+```{r}
+
+getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
+  networks <- list()
+  if (loc == 1){
+    # Change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence
+    colnames(df_brno)[colnames(df_brno) == "Recurrence"] <- "Recurrence_bi"
+    colnames(df_brno)[colnames(df_brno) == "Recurrence_location"] <- "Recurrence"
+    # Change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence
+    colnames(df_or)[colnames(df_or) == "Recurrence"] <- "Recurrence_bi"
+    colnames(df_or)[colnames(df_or) == "Recurrence_location"] <- "Recurrence"
+  }
+
+  for (i in 1:6){
+    network <- bNet
+    nodenames <- names(network$nodes)
+    # Get the fold
+    brno_fold <- df_brno[folds[[i]],]
+    # concat brno fold with or training set
+    data <- rbind(df_or, brno_fold)
+
+
+    # Train and get the networks
+    data <- as.data.frame(lapply(data[,nodenames], as.factor))
+
+    fittedModel <- bnlearn::bn.fit(network, data = data, method = 'bayes', iss=2)
+    imputedData <- bnlearn::impute(fittedModel, data, method = "bayes-lw", n=5000)
+    fittedModeli <- bnlearn::bn.fit(network, data = imputedData, method = 'bayes', iss=2)
+
+
+    if (FIGO == 1){
+      combined_FIGO <- data.frame(FIGO = data$FIGO, PostoperativeGrade = imputedData$PostoperativeGrade)
+      combined_FIGO <- combined_FIGO[complete.cases(combined_FIGO), ]
+
+      # Calculate and insert the local CPTs
+      countFIGO = table(combined_FIGO$FIGO, combined_FIGO$PostoperativeGrade)
+      cptFIGO = prop.table(countFIGO, 2)
+
+      names(dimnames(cptFIGO)) = c("FIGO", "PostoperativeGrade")
+
+      fittedModeli$FIGO = as.table(cptFIGO)
+    }
+
+    if (TCGA == 1){
+      combined_MSI_POLE <- data.frame(MSI = data$MSI, POLE=data$POLE , LNM = imputedData$LNM, PostoperativeGrade = imputedData$PostoperativeGrade)
+      combined_MSI_POLE <- combined_MSI_POLE[complete.cases(combined_MSI_POLE), ]
+      # Compute new MSI CPT
+      countMSI = xtabs(~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE)
+      laplace_constant = 1
+      smoothed_countMSI = countMSI + laplace_constant
+      cptMSIsmoothed = prop.table(smoothed_countMSI, c(3, 2))
+
+      # names(dimnames(cptMSIsmoothed)) = c("MSI", "LNM", "PostoperativeGrade")
+
+      fittedModeli$MSI = as.table(cptMSIsmoothed)
+
+      # Compute new POLE CPT
+      countPOLE = xtabs(~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE)
+      laplace_constant = 1
+      smoothed_countPOLE = countPOLE + laplace_constant
+      cptPOLEsmoothed = prop.table(smoothed_countPOLE, c(3, 2))
+
+      # names(dimnames(cptPOLEsmoothed)) = c("POLE", "PostoperativeGrade", "LNM")
+
+      fittedModeli$POLE = as.table(cptPOLEsmoothed)
+    }
+
+    if (MRI == 1){
+      combined_MRI_MI <- data.frame(MRI_MI = data$MRI_MI, MyometrialInvasion = imputedData$MyometrialInvasion)
+      combined_MRI_MI <- combined_MRI_MI[complete.cases(combined_MRI_MI), ]
+
+      # Compute new MRI CPT
+      countMRI = table(combined_MRI_MI$MRI_MI, combined_MRI_MI$MyometrialInvasion)
+      cptMRI = prop.table(countMRI, 2)
+
+      names(dimnames(cptMRI)) = c("MRI_MI", "MyometrialInvasion")
+
+      fittedModeli$MRI_MI = as.table(cptMRI)
+    }
+
+    networks[[i]] <- fittedModeli
+  }
+
+  # Change the names back if changed
+    if (loc == 1){
+        # Change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence
+        colnames(df_brno)[colnames(df_brno) == "Recurrence_bi"] <- "Recurrence"
+        colnames(df_brno)[colnames(df_brno) == "Recurrence"] <- "Recurrence_location"
+        # Change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence
+        colnames(df_or)[colnames(df_or) == "Recurrence_bi"] <- "Recurrence"
+        colnames(df_or)[colnames(df_or) == "Recurrence"] <- "Recurrence_location"
+    }
+
+  return (networks)
+}
+
+```
+
+```{r}
+# Get the networks
+print("Started 1")
+networks_Or <- getNetworks(dag_Or, loc = 1, FIGO = 0)
+print("Started 2")
+networks_NoPlat_NoRest <- getNetworks(dag_NoPlat_NoRest)
+print("Started 3")
+networks_NoPlat_MRI <- getNetworks(dag_NoPlat_MRI, MRI = 1)
+print("Started 4")
+networks_NoPlat_TCGA <- getNetworks(dag_NoPlat_TCGA, TCGA = 1)
+print("Started 5")
+networks_NoPlat_TCGA_MRI <- getNetworks(dag_NoPlat_TCGA_MRI, TCGA = 1, MRI = 1)
+print("Started 6")
+networks_Plat_NoRest <- getNetworks(dag_Plat_NoRest, FIGO = 0)
+print("Started 7")
+networks_Plat_TCGA_MRI <- getNetworks(dag_Plat_TCGA_MRI, TCGA = 1, MRI = 1)
+
+```
+
+
+### Validation of the different sets
+
+```{r}
+
+evidence_columns <- c("PreoperativeGrade", "MRI_MI", "CA125", "Platelets", "L1CAM", "ER", "PR", "p53", "POLE", "MSI","CTMRI", "Histology", "Cytology")
+
+getResults <- function(networks){
+  results <- list()
+  for (i in 1:6){
+    # Get the fold
+    test <- testsets[[i]]
+    # Get the network
+    network <- as.grain(networks[[i]])
+    # Get the nodes
+    nodenames <- names(network$cptlist)
+    # Common set of nodenames and evidence columns
+    common <- intersect(nodenames, evidence_columns)
+    # Get the test data
+    test <- as.data.frame(lapply(test[,common], as.factor))
+    # Get the predictions
+    predictions <- list()
+
+
+    for (j in 1:nrow(test)){
+      evidence <- as.list(test[j,])
+      evidence <- as.data.frame(evidence[!is.na(evidence)])
+
+      prediction <- predict(network, response =c("LNM","Survival5yr"), newdata = evidence, type="distribution") # Select the yes value from the nodes to make life easier
+
+      predictions$LNM[[j]] <- prediction$pred$LNM[[2]]
+      predictions$Surv[[j]] <- prediction$pred$Survival5yr[[2]]
+    }
+    results[[i]] <- predictions
+    # Get the results
+  }
+  return (results)
+}
+
+```
+
+```{r}
+# Get the results
+print("Started 1")
+results_Or <- getResults(networks_Or)
+print("Started 2")
+results_NoPlat_NoRest <- getResults(networks_NoPlat_NoRest)
+print("Started 3")
+results_NoPlat_MRI <- getResults(networks_NoPlat_MRI)
+print("Started 4")
+results_NoPlat_TCGA <- getResults(networks_NoPlat_TCGA)
+print("Started 5")
+results_NoPlat_TCGA_MRI <- getResults(networks_NoPlat_TCGA_MRI)
+print("Started 6")
+results_Plat_NoRest <- getResults(networks_Plat_NoRest)
+print("Started 7")
+results_Plat_TCGA_MRI <- getResults(networks_Plat_TCGA_MRI)
+
+```
+
+```{r}
+# Unpack the results
+for (i in 1:6){
+  # Save each of the results and the test set in a csv file, where the name is the result name + the fold number
+  write.csv(results_Or[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_Or_LNM_", i, ".csv"))
+  write.csv(results_Or[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_Or_Surv_", i, ".csv"))
+
+  write.csv(results_NoPlat_NoRest[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_NoRest_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_NoRest[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_NoRest_Surv_", i, ".csv"))
+
+  write.csv(results_NoPlat_MRI[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_MRI_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_MRI[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_MRI_Surv_", i, ".csv"))
+
+  write.csv(results_NoPlat_TCGA[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_TCGA[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_Surv_", i, ".csv"))
+
+  write.csv(results_NoPlat_TCGA_MRI[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_MRI_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_TCGA_MRI[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_MRI_Surv_", i, ".csv"))
+
+  write.csv(results_Plat_NoRest[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_Plat_NoRest_LNM_", i, ".csv"))
+  write.csv(results_Plat_NoRest[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_Plat_NoRest_Surv_", i, ".csv"))
+
+  write.csv(results_Plat_TCGA_MRI[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_Plat_TCGA_MRI_LNM_", i, ".csv"))
+  write.csv(results_Plat_TCGA_MRI[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_Plat_TCGA_MRI_Surv_", i, ".csv"))
+
+  write.csv(testsets[[i]], paste0("4. Model_analysis/Transfer_results/Testset_", i, ".csv"))
+}
+```
+
+```{r}
+
+```
+
+```{r}
+
+```

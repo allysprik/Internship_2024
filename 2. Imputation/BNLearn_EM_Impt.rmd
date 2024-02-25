@@ -1,0 +1,108 @@
+### Author: Ally Sprik
+### Last-updated: 25-02-2024
+
+Goal of this notebook is to impute missing values using Expectation Maximization (EM) and the expert defined network. The imputed data will be used to fit the pre-existing network.
+
+
+
+```{r}
+# Load libraries
+library(bnlearn)
+library(Rgraphviz)
+library(gRain)
+library(parallel)
+```
+
+
+
+```{r}
+# Load the data set
+#df <- read.csv2("0.4. Original_Peter_files/Results/subdagdataplat.csv", header = TRUE)
+df <- read.csv("0.1. Cleaned_data/Training_JAMA+Brno_model_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "NaN", "NULL", "", " ", "?"))
+#df <- df[df$Included_in_training_cohort == "yes",]
+df <- as.data.frame(lapply(df, as.factor))
+
+names(df)[names(df) == 'P53'] <- 'p53'
+
+# Read the starting network
+dag = paste("[MyometrialInvasion|PostoperativeGrade:Therapy][MRI_MI|MyometrialInvasion]",
+            "[Cytology|PostoperativeGrade]",
+            "[PreoperativeGrade]",
+            "[PostoperativeGrade|PreoperativeGrade]",
+            "[FIGO|PostoperativeGrade]",
+            "[Histology|FIGO:PreoperativeGrade]",
+            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",
+            "[CA125|LNM][CTMRI|LNM:CA125]",
+            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",
+            "[p53|LNM:PostoperativeGrade:L1CAM]",
+            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",
+            "[L1CAM|LNM:PostoperativeGrade:PR]",
+            "[Platelets|LNM]",
+            "[MSI|LNM:PostoperativeGrade]",
+            "[POLE|LNM:PostoperativeGrade]",
+            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",
+            "[Recurrence_location|Recurrence]",
+            "[Therapy|PostoperativeGrade]",
+            "[Chemotherapy|Therapy][Radiotherapy|Therapy]",
+            "[Survival1yr|Recurrence:Therapy:Survival3yr:Survival5yr]",
+            "[Survival3yr|Recurrence:Therapy:Survival5yr]",
+            "[Survival5yr|Recurrence:Therapy]", sep="")
+
+
+# dagmodel: pre-defined directed acyclic graph (DAG) structure
+BN <- model2network(dag)
+
+# Show the DAG
+graphviz.plot(BN)
+```
+
+
+
+Select the nodes in the data
+```{r}
+x <- as.array(bnlearn::nodes(BN))
+df_select <- df[,x]
+```
+
+
+Impute the missing values using Expectation Maximization (EM)
+```{r}
+# Create cluster
+cl <- makeCluster(detectCores() - 1)
+
+# impute the missing values through Expectation maximization
+BN <- bn.fit(BN, data = df_select, method = "bayes")
+
+StructureEM <- structural.em(df_select, max.iter = 100, return.all = TRUE, maximize = 'tabu', start = BN)
+```
+
+unpack the data from EM
+```{r}
+# Unpack the data
+dag <- StructureEM$dag
+imputed <- StructureEM$imputed
+Fitted <- StructureEM$fitted
+
+# Add the extra columns to imputed
+imputed <- cbind(imputed, df[,!(names(df) %in% names(imputed))])
+
+```
+
+```{r}
+# Plot the DAG
+graphviz.plot(dag)
+```
+
+Save the imputed data
+```{r}
+leng_imputed <- nrow(imputed)
+write.table(imputed, file = "0.2. Imputed_data/Training_JAMA_EM_imputed_",leng_imputed,".csv", sep = ",", row.names = FALSE)
+
+```
+
+
+Save the network
+```{r}
+write.net(Fitted, file = "3. Model/Fitted_Networks/EM_fitted_DAG_",leng_imputed,".net")
+```
+

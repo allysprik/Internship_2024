@@ -1,0 +1,81 @@
+### Author: Ally Sprik
+### Last-updated: 25-02-2024
+
+Goal of this notebook is to generate networks the original model peter provided, without platelets
+
+```{r}
+library(bnlearn)
+library(Rgraphviz)
+
+# The necessary subsets are created in the data-cleaning.R
+# Transform the modelstring (bayesian network) to Directed Acyclic Graph
+
+dag = paste("[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",
+            "[Cytology|PostoperativeGrade]",
+            "[PreoperativeGrade]",
+            "[PostoperativeGrade|PreoperativeGrade]",
+            "[FIGO|PostoperativeGrade]",
+            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",
+            "[CA125|LNM][CTMRI|LNM:CA125]",
+            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",
+            "[p53|LNM:PostoperativeGrade:L1CAM]",
+            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",
+            "[L1CAM|LNM:PostoperativeGrade:PR]",
+            #"[MSI|LNM:PostoperativeGrade]",
+            #"[POLE|LNM:PostoperativeGrade]",
+            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",
+            "[Chemotherapy|PostoperativeGrade]",
+            "[Radiotherapy|MyometrialInvasion]",
+            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",
+            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",
+            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
+
+# dagmodel: pre-defined directed acyclic graph (DAG) structure
+dagmodel = model2network(dag)
+
+# Plot the Graphs
+graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
+
+```
+
+# Import the data and and fit the model
+
+```{r}
+# Nodes in the model
+nodesDag = names(dagmodel$nodes)
+
+# Import the data
+data = read.csv("0.1. Cleaned_data/Training_JAMA+Brno_model_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+# Select only the rows that have yes in Included_in_training_cohort
+#data = data[data$Included_in_training_cohort == "yes",]
+# Select for nodes in model
+data = as.data.frame(lapply(data[, nodesDag], as.factor))
+
+```
+
+# Fit the model
+
+```{r}
+# Fit the model
+fittedModel = bn.fit(dagmodel, data = data, method = 'bayes')
+fittedNet = bn.net(fittedModel)
+imputedData = impute(fittedModel, data, method = "bayes-lw", n=5000)
+fittedModeli = bn.fit(dagmodel, data = imputedData)
+
+combined_FIGO = read.csv("3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ",")
+# Compute new FIGO CPT
+countFIGO = table(combined_FIGO$FIGO, combined_FIGO$PostoperativeGrade)
+cptFIGO = prop.table(countFIGO, 2)
+
+names(dimnames(cptFIGO)) = c("FIGO", "PostoperativeGrade")
+
+fittedModeli$FIGO = as.table(cptFIGO)
+
+```
+
+```{r}
+# Plot the Graphs
+graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
+write.net("3. Model/Fitted_Networks/R_WOP_original_952+Brno.net", fittedModeli)
+```
+
