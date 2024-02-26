@@ -47,9 +47,7 @@ graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
 # its structure and a data set -> in a form of 
 # conditional probability tables. 
 
-# Load the data for imputation
-#networkData = read.csv2(file = "0.2. Imputed_data/Peter_imputeddata.csv", header=TRUE, sep = ";", colClasses = c(rep("factor")))
-# subsetDAG: data frame with data to be imputed. 
+# subsetDAG: data frame with data to be imputed.
 subsetDAG = read.csv(file = "0.1. Cleaned_data/MAYO_subdag.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
 attach(subsetDAG)
 
