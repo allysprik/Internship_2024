@@ -15,6 +15,8 @@ description: Create 4 different Bayesian Networks for the TCGA data
 library(bnlearn)
 library(Rgraphviz)
 
+postfix = "952"
+
 # The necessary subsets are created in the data-cleaning.R
 # Transform the modelstring (bayesian network) to Directed Acyclic Graph
 # Define the model string for Dag_1
@@ -52,7 +54,7 @@ graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
 nodesDag = names(dagmodel$nodes)
 
 # Import the data
-data = read.csv("0.1. Cleaned_data/Training_JAMA+Brno_model_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+data = read.csv("0.1. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
 
 # Select only the rows that have yes in Included_in_training_cohort
 #data = data[data$Included_in_training_cohort == "yes",]
@@ -73,8 +75,8 @@ fittedModeli = bn.fit(dagmodel, data = imputedData)
 ```
 ```{r}
 # Load and insert CPTs
-combined_MSI_POLE = read.csv("3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ",")
-combined_FIGO = read.csv("3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ",")
+combined_MSI_POLE = read.csv("1. Ally_project/1.3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ",")
+combined_FIGO = read.csv("1. Ally_project/1.3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ",")
 
 # Compute new MSI CPT
 countMSI = xtabs(~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE)
@@ -111,272 +113,481 @@ fittedModeli$FIGO = as.table(cptFIGOsmoothed)
 
 # Plot the Graphs
 graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
-write.net("3. Model/Fitted_Networks/R_WOP_AddTCGA_1_fitted_952+Brno.net", fittedModeli)
+
+url = paste("1. Ally_project/1.3. Model/Fitted_Networks/R_WOP_AddTCGA_1_fitted_", postfix, ".net", sep="")
+write.net(url, fittedModeli)
 
 ```
 
+Everything below here doesn't currently work with the new way the CPTs are inserted, due to different CPTs count tables necessary. Thus it has been commented out.
+Not a big deal to fix, you could load in the data and create local CPTs here instead of using the CSVs which is probably the best way. However, we found that for LNM the configurations didn't change anything, perhaps when looking at the survival side it can be interesting to see if the configurations change anything.
+Currently, configuration 1, which is also the same configuration used in the other models that contain TCGA.
 
-Now for the second arrangement of the nodes
-
-```{r}
-# Define the model string for Dag_1
-dag_2 = paste("[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",
-            "[Cytology|PostoperativeGrade]",
-            "[PreoperativeGrade]",
-            "[PostoperativeGrade|PreoperativeGrade]","[FIGO|PostoperativeGrade]",
-            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",
-            "[CA125|LNM][CTMRI|LNM:CA125]",
-            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",
-            "[p53|LNM:PostoperativeGrade:L1CAM]",
-            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",
-            "[L1CAM|LNM:PostoperativeGrade:PR]",
-            "[MSI|LNM:PostoperativeGrade]",
-            "[POLE|Recurrence:PostoperativeGrade]",
-            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",
-            "[Chemotherapy|PostoperativeGrade]",
-            "[Radiotherapy|MyometrialInvasion]",
-            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",
-            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",
-            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure version 1
-dagmodel = model2network(dag_2)
-
-# Plot the Graphs
-graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
-
-
-```
-
-
-Fit the model
-
-```{r}
-# Fit the model
-fittedModel = bn.fit(dagmodel, data = data, method = 'bayes')
-fittedNet = bn.net(fittedModel)
-imputedData = impute(fittedModel, data, method = "bayes-lw", n=5000)
-fittedModeli = bn.fit(dagmodel, data = imputedData)
-```
-```{r}
-# Load and insert CPTs
-combined_MSI_POLE = read.csv("3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ",")
-combined_FIGO = read.csv("3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ",")
-
-# Compute new MSI CPT
-countMSI = xtabs(~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE)
-laplace_constant = 1
-smoothed_countMSI = countMSI + laplace_constant
-cptMSIsmoothed = prop.table(smoothed_countMSI, c(3, 2))
-
-names(dimnames(cptMSIsmoothed)) = c("MSI", "LNM", "PostoperativeGrade")
-
-fittedModeli$MSI = as.table(cptMSIsmoothed)
-
-# Compute new POLE CPT
-countPOLE = xtabs(~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE)
-laplace_constant = 1
-smoothed_countPOLE = countPOLE + laplace_constant
-cptPOLEsmoothed = prop.table(smoothed_countPOLE, c(3, 2))
-
-names(dimnames(cptPOLEsmoothed)) = c("POLE", "LNM", "PostoperativeGrade")
-
-fittedModeli$POLE = as.table(cptPOLEsmoothed)
+[//]: # ()
+[//]: # (Now for the second arrangement of the nodes)
 
-# Compute new FIGO CPT
-countFIGO = xtabs(~ FIGO + PostoperativeGrade, combined_FIGO)
-laplace_constant = 1
-smoothed_countFIGO = countFIGO + laplace_constant
-cptFIGOsmoothed = prop.table(smoothed_countFIGO, 2)
+[//]: # ()
+[//]: # (```{r})
 
-names(dimnames(cptFIGOsmoothed)) = c("FIGO", "PostoperativeGrade")
+[//]: # (# Define the model string for Dag_1)
 
-fittedModeli$FIGO = as.table(cptFIGOsmoothed)
+[//]: # (dag_2 = paste&#40;"[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",)
 
-```
-```{r}
+[//]: # (            "[Cytology|PostoperativeGrade]",)
 
-# Plot the Graphs
-graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
-write.net("3. Model/Fitted_Networks/R_WOP_AddTCGA_2_fitted_952+Brno.net", fittedModeli)
+[//]: # (            "[PreoperativeGrade]",)
 
-```
+[//]: # (            "[PostoperativeGrade|PreoperativeGrade]","[FIGO|PostoperativeGrade]",)
 
+[//]: # (            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",)
 
-Now for the third arrangement of the nodes
+[//]: # (            "[CA125|LNM][CTMRI|LNM:CA125]",)
 
-```{r}
-# Define the model string for Dag_1
-dag_3 = paste("[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",
-            "[Cytology|PostoperativeGrade]",
-            "[PreoperativeGrade]",
-            "[PostoperativeGrade|PreoperativeGrade]", "[FIGO|PostoperativeGrade]",
-            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",
-            "[CA125|LNM][CTMRI|LNM:CA125]",
-            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",
-            "[p53|LNM:PostoperativeGrade:L1CAM]",
-            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",
-            "[L1CAM|LNM:PostoperativeGrade:PR]",
-            "[MSI|LNM:PostoperativeGrade]",
-            "[POLE|Recurrence:LNM]",
-            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",
-            "[Chemotherapy|PostoperativeGrade]",
-            "[Radiotherapy|MyometrialInvasion]",
-            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",
-            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",
-            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
+[//]: # (            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",)
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure version 1
-dagmodel = model2network(dag_3)
+[//]: # (            "[p53|LNM:PostoperativeGrade:L1CAM]",)
 
-# Plot the Graphs
-graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
+[//]: # (            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",)
 
+[//]: # (            "[L1CAM|LNM:PostoperativeGrade:PR]",)
 
-```
+[//]: # (            "[MSI|LNM:PostoperativeGrade]",)
 
+[//]: # (            "[POLE|Recurrence:PostoperativeGrade]",)
 
-Fit the model
+[//]: # (            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",)
 
-```{r}
-# Fit the model
-fittedModel = bn.fit(dagmodel, data = data, method = 'bayes')
-fittedNet = bn.net(fittedModel)
-imputedData = impute(fittedModel, data, method = "bayes-lw", n=5000)
-fittedModeli = bn.fit(dagmodel, data = imputedData)
+[//]: # (            "[Chemotherapy|PostoperativeGrade]",)
 
-```
-```{r}
-# Load and insert CPTs
-combined_MSI_POLE = read.csv("3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ",")
-combined_FIGO = read.csv("3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ",")
+[//]: # (            "[Radiotherapy|MyometrialInvasion]",)
 
-# Compute new MSI CPT
-countMSI = xtabs(~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE)
-laplace_constant = 1
-smoothed_countMSI = countMSI + laplace_constant
-cptMSIsmoothed = prop.table(smoothed_countMSI, c(3, 2))
+[//]: # (            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",)
 
-names(dimnames(cptMSIsmoothed)) = c("MSI", "LNM", "PostoperativeGrade")
+[//]: # (            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",)
 
-fittedModeli$MSI = as.table(cptMSIsmoothed)
+[//]: # (            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep=""&#41;)
 
-# Compute new POLE CPT
-countPOLE = xtabs(~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE)
-laplace_constant = 1
-smoothed_countPOLE = countPOLE + laplace_constant
-cptPOLEsmoothed = prop.table(smoothed_countPOLE, c(3, 2))
+[//]: # ()
+[//]: # (# dagmodel: pre-defined directed acyclic graph &#40;DAG&#41; structure version 1)
 
-names(dimnames(cptPOLEsmoothed)) = c("POLE", "LNM", "PostoperativeGrade")
+[//]: # (dagmodel = model2network&#40;dag_2&#41;)
 
-fittedModeli$POLE = as.table(cptPOLEsmoothed)
+[//]: # ()
+[//]: # (# Plot the Graphs)
 
-# Compute new FIGO CPT
-countFIGO = xtabs(~ FIGO + PostoperativeGrade, combined_FIGO)
-laplace_constant = 1
-smoothed_countFIGO = countFIGO + laplace_constant
-cptFIGOsmoothed = prop.table(smoothed_countFIGO,2)
+[//]: # (graphviz.plot&#40;dagmodel, shape = "rectangle", highlight = list&#40;"nodes"&#41;&#41;)
 
-names(dimnames(cptFIGOsmoothed)) = c("FIGO", "PostoperativeGrade")
+[//]: # ()
+[//]: # ()
+[//]: # (```)
 
-fittedModeli$FIGO = as.table(cptFIGOsmoothed)
+[//]: # ()
+[//]: # ()
+[//]: # (Fit the model)
 
-```
-```{r}
+[//]: # ()
+[//]: # (```{r})
 
+[//]: # (# Fit the model)
 
-# Plot the Graphs
-graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
-write.net("3. Model/Fitted_Networks/R_WOP_AddTCGA_3_fitted_952.net", fittedModeli)
+[//]: # (fittedModel = bn.fit&#40;dagmodel, data = data, method = 'bayes'&#41;)
 
-```
+[//]: # (fittedNet = bn.net&#40;fittedModel&#41;)
 
+[//]: # (imputedData = impute&#40;fittedModel, data, method = "bayes-lw", n=5000&#41;)
 
+[//]: # (fittedModeli = bn.fit&#40;dagmodel, data = imputedData&#41;)
 
-Now for the fourth arrangement of the nodes
+[//]: # (```)
 
-```{r}
-# Define the model string for Dag_1
-dag_4 = paste("[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",
-            "[Cytology|PostoperativeGrade]",
-            "[PreoperativeGrade]",
-            "[PostoperativeGrade|PreoperativeGrade]", "[FIGO|PostoperativeGrade]",
-            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",
-            "[CA125|LNM][CTMRI|LNM:CA125]",
-            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",
-            "[p53|LNM:PostoperativeGrade:L1CAM]",
-            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",
-            "[L1CAM|LNM:PostoperativeGrade:PR]",
-            "[MSI|LNM:PostoperativeGrade]",
-            "[POLE|Recurrence:LNM:PostoperativeGrade]",
-            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",
-            "[Chemotherapy|PostoperativeGrade]",
-            "[Radiotherapy|MyometrialInvasion]",
-            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",
-            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",
-            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
+[//]: # (```{r})
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure version 1
-dagmodel = model2network(dag_4)
+[//]: # (# Load and insert CPTs)
 
-# Plot the Graphs
-graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
+[//]: # (combined_MSI_POLE = read.csv&#40;"1. Ally_project/1.3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ","&#41;)
 
+[//]: # (combined_FIGO = read.csv&#40;"1. Ally_project/1.3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ","&#41;)
 
-```
+[//]: # ()
+[//]: # (# Compute new MSI CPT)
 
+[//]: # (countMSI = xtabs&#40;~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE&#41;)
 
-Fit the model
+[//]: # (laplace_constant = 1)
 
-```{r}
-# Fit the model
-fittedModel = bn.fit(dagmodel, data = data, method = 'bayes')
-fittedNet = bn.net(fittedModel)
-imputedData = impute(fittedModel, data, method = "bayes-lw", n=5000)
-fittedModeli = bn.fit(dagmodel, data = imputedData)
+[//]: # (smoothed_countMSI = countMSI + laplace_constant)
 
-```
-```{r}
-# Load and insert CPTs
-combined_MSI_POLE = read.csv("3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ",")
-combined_FIGO = read.csv("3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ",")
+[//]: # (cptMSIsmoothed = prop.table&#40;smoothed_countMSI, c&#40;3, 2&#41;&#41;)
 
-# Compute new MSI CPT
-countMSI = xtabs(~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE)
-laplace_constant = 1
-smoothed_countMSI = countMSI + laplace_constant
-cptMSIsmoothed = prop.table(smoothed_countMSI, c(3, 2))
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptMSIsmoothed&#41;&#41; = c&#40;"MSI", "LNM", "PostoperativeGrade"&#41;)
 
-names(dimnames(cptMSIsmoothed)) = c("MSI", "LNM", "PostoperativeGrade")
+[//]: # ()
+[//]: # (fittedModeli$MSI = as.table&#40;cptMSIsmoothed&#41;)
 
-fittedModeli$MSI = as.table(cptMSIsmoothed)
+[//]: # ()
+[//]: # (# Compute new POLE CPT)
 
-# Compute new POLE CPT
-countPOLE = xtabs(~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE)
-laplace_constant = 1
-smoothed_countPOLE = countPOLE + laplace_constant
-cptPOLEsmoothed = prop.table(smoothed_countPOLE, c(3, 2))
+[//]: # (countPOLE = xtabs&#40;~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE&#41;)
 
-names(dimnames(cptPOLEsmoothed)) = c("POLE", "LNM", "PostoperativeGrade")
+[//]: # (laplace_constant = 1)
 
-fittedModeli$POLE = as.table(cptPOLEsmoothed)
+[//]: # (smoothed_countPOLE = countPOLE + laplace_constant)
 
-# Compute new FIGO CPT
-countFIGO = xtabs(~ FIGO + PostoperativeGrade, combined_FIGO)
-laplace_constant = 1
-smoothed_countFIGO = countFIGO + laplace_constant
-cptFIGOsmoothed = prop.table(smoothed_countFIGO, 2)
+[//]: # (cptPOLEsmoothed = prop.table&#40;smoothed_countPOLE, c&#40;3, 2&#41;&#41;)
 
-names(dimnames(cptFIGOsmoothed)) = c("FIGO", "PostoperativeGrade")
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptPOLEsmoothed&#41;&#41; = c&#40;"POLE", "LNM", "PostoperativeGrade"&#41;)
 
-fittedModeli$FIGO = as.table(cptFIGOsmoothed)
+[//]: # ()
+[//]: # (fittedModeli$POLE = as.table&#40;cptPOLEsmoothed&#41;)
 
+[//]: # ()
+[//]: # (# Compute new FIGO CPT)
 
-```
-```{r}
+[//]: # (countFIGO = xtabs&#40;~ FIGO + PostoperativeGrade, combined_FIGO&#41;)
 
-# Plot the Graphs
-graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
-write.net("3. Model/Fitted_Networks/R_WOP_AddTCGA_4_fitted_952.net", fittedModeli)
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countFIGO = countFIGO + laplace_constant)
+
+[//]: # (cptFIGOsmoothed = prop.table&#40;smoothed_countFIGO, 2&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptFIGOsmoothed&#41;&#41; = c&#40;"FIGO", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$FIGO = as.table&#40;cptFIGOsmoothed&#41;)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # (```{r})
+
+[//]: # ()
+[//]: # (# Plot the Graphs)
+
+[//]: # (graphviz.plot&#40;fittedNet, shape = "rectangle", highlight = list&#40;"nodes"&#41;&#41;)
+
+[//]: # ()
+[//]: # (url = paste&#40;"1. Ally_project/1.3. Model/Fitted_Networks/R_WOP_AddTCGA_2_fitted_", postfix, ".net", sep=""&#41;)
+
+[//]: # (write.net&#40;url, fittedModeli&#41;)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # ()
+[//]: # ()
+[//]: # (Now for the third arrangement of the nodes)
+
+[//]: # ()
+[//]: # (```{r})
+
+[//]: # (# Define the model string for Dag_1)
+
+[//]: # (dag_3 = paste&#40;"[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",)
+
+[//]: # (            "[Cytology|PostoperativeGrade]",)
+
+[//]: # (            "[PreoperativeGrade]",)
+
+[//]: # (            "[PostoperativeGrade|PreoperativeGrade]", "[FIGO|PostoperativeGrade]",)
+
+[//]: # (            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",)
+
+[//]: # (            "[CA125|LNM][CTMRI|LNM:CA125]",)
+
+[//]: # (            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",)
+
+[//]: # (            "[p53|LNM:PostoperativeGrade:L1CAM]",)
+
+[//]: # (            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",)
+
+[//]: # (            "[L1CAM|LNM:PostoperativeGrade:PR]",)
+
+[//]: # (            "[MSI|LNM:PostoperativeGrade]",)
+
+[//]: # (            "[POLE|Recurrence:LNM]",)
+
+[//]: # (            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",)
+
+[//]: # (            "[Chemotherapy|PostoperativeGrade]",)
+
+[//]: # (            "[Radiotherapy|MyometrialInvasion]",)
+
+[//]: # (            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",)
+
+[//]: # (            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",)
+
+[//]: # (            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep=""&#41;)
+
+[//]: # ()
+[//]: # (# dagmodel: pre-defined directed acyclic graph &#40;DAG&#41; structure version 1)
+
+[//]: # (dagmodel = model2network&#40;dag_3&#41;)
+
+[//]: # ()
+[//]: # (# Plot the Graphs)
+
+[//]: # (graphviz.plot&#40;dagmodel, shape = "rectangle", highlight = list&#40;"nodes"&#41;&#41;)
+
+[//]: # ()
+[//]: # ()
+[//]: # (```)
+
+[//]: # ()
+[//]: # ()
+[//]: # (Fit the model)
+
+[//]: # ()
+[//]: # (```{r})
+
+[//]: # (# Fit the model)
+
+[//]: # (fittedModel = bn.fit&#40;dagmodel, data = data, method = 'bayes'&#41;)
+
+[//]: # (fittedNet = bn.net&#40;fittedModel&#41;)
+
+[//]: # (imputedData = impute&#40;fittedModel, data, method = "bayes-lw", n=5000&#41;)
+
+[//]: # (fittedModeli = bn.fit&#40;dagmodel, data = imputedData&#41;)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # (```{r})
+
+[//]: # (# Load and insert CPTs)
+
+[//]: # (combined_MSI_POLE = read.csv&#40;"1. Ally_project/1.3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ","&#41;)
+
+[//]: # (combined_FIGO = read.csv&#40;"1. Ally_project/1.3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ","&#41;)
+
+[//]: # ()
+[//]: # (# Compute new MSI CPT)
+
+[//]: # (countMSI = xtabs&#40;~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE&#41;)
+
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countMSI = countMSI + laplace_constant)
+
+[//]: # (cptMSIsmoothed = prop.table&#40;smoothed_countMSI, c&#40;3, 2&#41;&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptMSIsmoothed&#41;&#41; = c&#40;"MSI", "LNM", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$MSI = as.table&#40;cptMSIsmoothed&#41;)
+
+[//]: # ()
+[//]: # (# Compute new POLE CPT)
+
+[//]: # (countPOLE = xtabs&#40;~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE&#41;)
+
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countPOLE = countPOLE + laplace_constant)
+
+[//]: # (cptPOLEsmoothed = prop.table&#40;smoothed_countPOLE, c&#40;3, 2&#41;&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptPOLEsmoothed&#41;&#41; = c&#40;"POLE", "LNM", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$POLE = as.table&#40;cptPOLEsmoothed&#41;)
+
+[//]: # ()
+[//]: # (# Compute new FIGO CPT)
+
+[//]: # (countFIGO = xtabs&#40;~ FIGO + PostoperativeGrade, combined_FIGO&#41;)
+
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countFIGO = countFIGO + laplace_constant)
+
+[//]: # (cptFIGOsmoothed = prop.table&#40;smoothed_countFIGO,2&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptFIGOsmoothed&#41;&#41; = c&#40;"FIGO", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$FIGO = as.table&#40;cptFIGOsmoothed&#41;)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # (```{r})
+
+[//]: # ()
+[//]: # ()
+[//]: # (# Plot the Graphs)
+
+[//]: # (graphviz.plot&#40;fittedNet, shape = "rectangle", highlight = list&#40;"nodes"&#41;&#41;)
+
+[//]: # ()
+[//]: # (url = paste&#40;"1. Ally_project/1.3. Model/Fitted_Networks/R_WOP_AddTCGA_3_fitted_", postfix, ".net", sep=""&#41;)
+
+[//]: # (write.net&#40;url, fittedModeli&#41;)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # ()
+[//]: # ()
+[//]: # ()
+[//]: # (Now for the fourth arrangement of the nodes)
+
+[//]: # ()
+[//]: # (```{r})
+
+[//]: # (# Define the model string for Dag_1)
+
+[//]: # (dag_4 = paste&#40;"[MyometrialInvasion|PostoperativeGrade]",#[MRI_MI|MyometrialInvasion]",)
+
+[//]: # (            "[Cytology|PostoperativeGrade]",)
+
+[//]: # (            "[PreoperativeGrade]",)
+
+[//]: # (            "[PostoperativeGrade|PreoperativeGrade]", "[FIGO|PostoperativeGrade]",)
+
+[//]: # (            "[LNM|LVSI:MyometrialInvasion:PostoperativeGrade:Chemotherapy]",)
+
+[//]: # (            "[CA125|LNM][CTMRI|LNM:CA125]",)
+
+[//]: # (            "[LVSI|PostoperativeGrade:Cytology:Chemotherapy]",)
+
+[//]: # (            "[p53|LNM:PostoperativeGrade:L1CAM]",)
+
+[//]: # (            "[ER|LNM:PostoperativeGrade][PR|LNM:PostoperativeGrade:ER]",)
+
+[//]: # (            "[L1CAM|LNM:PostoperativeGrade:PR]",)
+
+[//]: # (            "[MSI|LNM:PostoperativeGrade]",)
+
+[//]: # (            "[POLE|Recurrence:LNM:PostoperativeGrade]",)
+
+[//]: # (            "[Recurrence|CA125:LNM:LVSI:PostoperativeGrade]",)
+
+[//]: # (            "[Chemotherapy|PostoperativeGrade]",)
+
+[//]: # (            "[Radiotherapy|MyometrialInvasion]",)
+
+[//]: # (            "[Survival1yr|Recurrence:Chemotherapy:Radiotherapy:Survival3yr:Survival5yr]",)
+
+[//]: # (            "[Survival3yr|Recurrence:Chemotherapy:Radiotherapy:Survival5yr]",)
+
+[//]: # (            "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep=""&#41;)
+
+[//]: # ()
+[//]: # (# dagmodel: pre-defined directed acyclic graph &#40;DAG&#41; structure version 1)
+
+[//]: # (dagmodel = model2network&#40;dag_4&#41;)
+
+[//]: # ()
+[//]: # (# Plot the Graphs)
+
+[//]: # (graphviz.plot&#40;dagmodel, shape = "rectangle", highlight = list&#40;"nodes"&#41;&#41;)
+
+[//]: # ()
+[//]: # ()
+[//]: # (```)
+
+[//]: # ()
+[//]: # ()
+[//]: # (Fit the model)
+
+[//]: # ()
+[//]: # (```{r})
+
+[//]: # (# Fit the model)
+
+[//]: # (fittedModel = bn.fit&#40;dagmodel, data = data, method = 'bayes'&#41;)
+
+[//]: # (fittedNet = bn.net&#40;fittedModel&#41;)
+
+[//]: # (imputedData = impute&#40;fittedModel, data, method = "bayes-lw", n=5000&#41;)
+
+[//]: # (fittedModeli = bn.fit&#40;dagmodel, data = imputedData&#41;)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # (```{r})
+
+[//]: # (# Load and insert CPTs)
+
+[//]: # (combined_MSI_POLE = read.csv&#40;"1. Ally_project/1.3. Model/CPT_files/MSI_POLE_combined.csv", header = TRUE, sep = ","&#41;)
+
+[//]: # (combined_FIGO = read.csv&#40;"1. Ally_project/1.3. Model/CPT_files/FIGO_combined.csv", header = TRUE, sep = ","&#41;)
+
+[//]: # ()
+[//]: # (# Compute new MSI CPT)
+
+[//]: # (countMSI = xtabs&#40;~ MSI + LNM + PostoperativeGrade, combined_MSI_POLE&#41;)
+
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countMSI = countMSI + laplace_constant)
+
+[//]: # (cptMSIsmoothed = prop.table&#40;smoothed_countMSI, c&#40;3, 2&#41;&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptMSIsmoothed&#41;&#41; = c&#40;"MSI", "LNM", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$MSI = as.table&#40;cptMSIsmoothed&#41;)
+
+[//]: # ()
+[//]: # (# Compute new POLE CPT)
+
+[//]: # (countPOLE = xtabs&#40;~ POLE + LNM + PostoperativeGrade, combined_MSI_POLE&#41;)
+
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countPOLE = countPOLE + laplace_constant)
+
+[//]: # (cptPOLEsmoothed = prop.table&#40;smoothed_countPOLE, c&#40;3, 2&#41;&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptPOLEsmoothed&#41;&#41; = c&#40;"POLE", "LNM", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$POLE = as.table&#40;cptPOLEsmoothed&#41;)
+
+[//]: # ()
+[//]: # (# Compute new FIGO CPT)
+
+[//]: # (countFIGO = xtabs&#40;~ FIGO + PostoperativeGrade, combined_FIGO&#41;)
+
+[//]: # (laplace_constant = 1)
+
+[//]: # (smoothed_countFIGO = countFIGO + laplace_constant)
+
+[//]: # (cptFIGOsmoothed = prop.table&#40;smoothed_countFIGO, 2&#41;)
+
+[//]: # ()
+[//]: # (names&#40;dimnames&#40;cptFIGOsmoothed&#41;&#41; = c&#40;"FIGO", "PostoperativeGrade"&#41;)
+
+[//]: # ()
+[//]: # (fittedModeli$FIGO = as.table&#40;cptFIGOsmoothed&#41;)
+
+[//]: # ()
+[//]: # ()
+[//]: # (```)
+
+[//]: # (```{r})
+
+[//]: # ()
+[//]: # (# Plot the Graphs)
+
+[//]: # (graphviz.plot&#40;fittedNet, shape = "rectangle", highlight = list&#40;"nodes"&#41;&#41;)
+
+[//]: # ()
+[//]: # (url = paste&#40;"1. Ally_project/1.3. Model/Fitted_Networks/R_WOP_AddTCGA_4_fitted_", postfix, ".net", sep=""&#41;)
+
+[//]: # (write.net&#40;url, fittedModeli&#41;)
 
 ```

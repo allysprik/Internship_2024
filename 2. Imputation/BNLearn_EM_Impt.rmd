@@ -1,8 +1,7 @@
 ### Author: Ally Sprik
 ### Last-updated: 25-02-2024
 
-Goal of this notebook is to impute missing values using Expectation Maximization (EM) and the expert defined network. The imputed data will be used to fit the pre-existing network.
-
+Goal of this notebook is to impute missing values using Expectation Maximization (EM) and the expert defined network. The imputed data will be used to fit the pre-existing network. Define your postfix
 
 
 ```{r}
@@ -11,20 +10,26 @@ library(bnlearn)
 library(Rgraphviz)
 library(gRain)
 library(parallel)
+
+
+postfix = "952"
 ```
 
 
 
 ```{r}
 # Load the data set
-#df <- read.csv2("0.4. Original_Peter_files/Results/subdagdataplat.csv", header = TRUE)
-df <- read.csv("0.1. Cleaned_data/Training_JAMA+Brno_model_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "NaN", "NULL", "", " ", "?"))
+df <- read.csv("0.2. Cleaned_data/Training_JAMA+Brno_model_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "NaN", "NULL", "", " ", "?"))
+# uncomment the following line to only include the patients that are included in the original training cohort
 #df <- df[df$Included_in_training_cohort == "yes",]
+
+# Convert the data to factors, making them categorical
 df <- as.data.frame(lapply(df, as.factor))
 
+# Change the name of the p53 column to lowercase
 names(df)[names(df) == 'P53'] <- 'p53'
 
-# Read the starting network
+# Define the Directed Acyclic Graph (DAG) structure
 dag = paste("[MyometrialInvasion|PostoperativeGrade:Therapy][MRI_MI|MyometrialInvasion]",
             "[Cytology|PostoperativeGrade]",
             "[PreoperativeGrade]",
@@ -49,7 +54,7 @@ dag = paste("[MyometrialInvasion|PostoperativeGrade:Therapy][MRI_MI|MyometrialIn
             "[Survival5yr|Recurrence:Therapy]", sep="")
 
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure
+# convert the string to a network
 BN <- model2network(dag)
 
 # Show the DAG
@@ -95,14 +100,13 @@ graphviz.plot(dag)
 
 Save the imputed data
 ```{r}
-leng_imputed <- nrow(imputed)
-write.table(imputed, file = "0.2. Imputed_data/Training_JAMA_EM_imputed_",leng_imputed,".csv", sep = ",", row.names = FALSE)
+write.table(imputed, file = paste0("0. Source_files/0.3. Imputed_data/Training_JAMA_EM_imputed_",postfix,".csv"), sep = ",", row.names = FALSE)
 
 ```
 
 
 Save the network
 ```{r}
-write.net(Fitted, file = "3. Model/Fitted_Networks/EM_fitted_DAG_",leng_imputed,".net")
+write.net(Fitted, file = paste0("1. Ally_project/1.3. Model/Fitted_Networks/EM_fitted_DAG_",postfix,".net"))
 ```
 

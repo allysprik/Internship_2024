@@ -10,6 +10,14 @@ library(bnlearn)
 library(dplyr)
 library(gRain)
 
+# Define postfix for filenames
+postfix = "952+Brno"
+
+# Define Directed Acyclic Graph (DAG) structure
+# It is a string that defines the structure of the Bayesian network according to the following rules:
+# [node1|node2:node3] means that node1 is dependent on node2 and node3
+# A node must be defined before it can be used as a parent node
+# each bracket pair defines a node and its parents
 dag = paste("[MyometrialInvasion|PostoperativeGrade]",#MRI_MI|MyometrialInvasion]",
             "[Cytology|PostoperativeGrade]",
             "[PreoperativeGrade]",
@@ -32,31 +40,40 @@ dag = paste("[MyometrialInvasion|PostoperativeGrade]",#MRI_MI|MyometrialInvasion
             "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
 
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure
+# Transform the model string to Directed Acyclic Graph
 dagmodel = model2network(dag)
 # Nodes in the model
 nodesDag = names(dagmodel$nodes)
 
 # Import the data
-data = read.csv("0.1. Cleaned_data/Training_JAMA+Brno_model_complete_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+#data = read.csv("0. Source_files/0.2. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA",
+# "N/A", "N/A ", " ", ""))
+
+data = read.csv("0. Source_files/0.2. Cleaned_data/Training_JAMA+Brno_model_complete_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+
 # Select only the rows that have yes in Included_in_training_cohort
 #data = data[data$Included_in_training_cohort == "yes",]
 # Select for nodes in model
-data = as.data.frame(lapply(data[, nodesDag], as.factor))
+tdata = as.data.frame(lapply(data[, nodesDag], as.factor))
 
 ```
 
 
 # Fit the model
+- Fit the model on the training data
+- Impute the missing data
+- Fit the model on the imputed data
 ```{r}
-fittedModel = bn.fit(dagmodel, data = data, method = 'bayes')
-fittedNet = bn.net(fittedModel)
-imputedData = impute(fittedModel, data, method = "bayes-lw", n=5000)
+fittedModel = bn.fit(dagmodel, data = tdata, method = 'bayes')
+imputedData = impute(fittedModel, tdata, method = "bayes-lw", n=5000)
 fittedModeli = bn.fit(dagmodel, data = imputedData)
 
+fittedNet = bn.net(fittedModeli)
 # Plot the Graphs
 graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
-write.net("3. Model/Fitted_Networks/R_WP_original_952+Brno.net", fittedModeli)
+
+url = paste("1. Ally_project/1.3. Model/Fitted_Networks/R_WP_",postfix,".net", sep = "")
+write.net(url, fittedModeli)
 ```
 
 
@@ -104,12 +121,8 @@ graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
 # Nodes in the model
 nodesDag = names(dagmodel$nodes)
 
-# Import the data
-data = read.csv("0.1. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
-# Select only the rows that have yes in Included_in_training_cohort
-data = data[data$Included_in_training_cohort == "yes",]
 # Select for nodes in model
-data = as.data.frame(lapply(data[, nodesDag], as.factor))
+tdata = as.data.frame(lapply(data[, nodesDag], as.factor))
 
 ```
 
@@ -117,20 +130,22 @@ data = as.data.frame(lapply(data[, nodesDag], as.factor))
 
 ```{r}
 # Fit the model
-fittedModel = bn.fit(dagmodel, data = data, method = 'bayes')
-fittedNet = bn.net(fittedModel)
-imputedData = impute(fittedModel, data, method = "bayes-lw", n=5000)
+fittedModel = bn.fit(dagmodel, data = tdata, method = 'bayes')
+imputedData = impute(fittedModel, tdata, method = "bayes-lw", n=5000)
 fittedModeli = bn.fit(dagmodel, data = imputedData)
 
 # Plot the Graphs
+fittedNet = bn.net(fittedModel)
 graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
 ```
 
 Calculate and insert the local CPTs
+
+Pseudocode:
+1. Create a subset of the data with the nodes of interest
+2. Remove the rows with missing values
+3. Repeat for each node of interest
 ```{r}
-data = read.csv("0.1. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
-data = data[data$Included_in_training_cohort == "yes",]
-# Combine the data for the calculation of the local CPTs
 combined_MRI_MI = data.frame(MRI_MI = data$MRI_MI, MyometrialInvasion = imputedData$MyometrialInvasion)
 combined_MRI_MI <- combined_MRI_MI[complete.cases(combined_MRI_MI), ]
 
@@ -146,15 +161,22 @@ Save the data for the calculation of the local CPTs
 ```{r}
 
 # Save the data for the calculation of the local CPTs
-write.csv(combined_MRI_MI, "3. Model/CPT_files/MRI_MI_combined.csv",  row.names = FALSE)
-write.csv(combined_MSI_POLE, "3. Model/CPT_files/MSI_POLE_combined.csv",  row.names = FALSE)
-write.csv(combined_FIGO, "3. Model/CPT_files/FIGO_combined.csv",  row.names = FALSE)
+write.csv(combined_MRI_MI, "1. Ally_project/1.3. Model/CPT_files/MRI_MI_combined.csv",  row.names = FALSE)
+write.csv(combined_MSI_POLE, "1. Ally_project/1.3. Model/CPT_files/MSI_POLE_combined.csv",  row.names = FALSE)
+write.csv(combined_FIGO, "1. Ally_project/1.3. Model/CPT_files/FIGO_combined.csv",  row.names = FALSE)
 
 ```
 
 Calculate and insert the local CPTs
+Pseudocode:
+1. Create a subset of the data with the nodes of interest
+2. Calculate the CPT
+3. Ensure the names of the dimensions are correct
+4. Insert the CPT in the model
+5. Repeat for each node of interest
+
 ```{r}
-# Calculate and insert the local CPTs
+# FIGO
 countFIGO = table(combined_FIGO$FIGO, combined_FIGO$PostoperativeGrade)
 cptFIGO = prop.table(countFIGO, 2)
 
@@ -194,9 +216,12 @@ fittedModeli$POLE = as.table(cptPOLEsmoothed)
 
 Save the model
 ```{r}
-write.net("3. Model/Fitted_Networks/R_WP_all_952+Brno.net", fittedModeli)
 
-write.csv(imputedData, "0.2. Imputed_data/Training_JAMA+Brno_imputed_952+Brno.csv",  row.names = FALSE)
+url = paste("1. Ally_project/1.3. Model/Fitted_Networks/R_WP_all_",postfix,".net", sep = "")
+write.net(url, fittedModeli)
+
+url = paste("0.3. Imputed_data/R_WP_all_model_imputed_",postfix,".csv", sep = "")
+write.csv(imputedData, url,  row.names = FALSE)
 ```
 
 Next model is the same as the previous model but with MRI_MI without MSI and POLE
@@ -230,8 +255,9 @@ dag = paste("[MyometrialInvasion|PostoperativeGrade][MRI_MI|MyometrialInvasion]"
             "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
 
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure
+# Confert the modelstring to a Directed Acyclic Graph
 dagmodel = model2network(dag)
+# Select for nodes in model
 tempdata = data[, names(dagmodel$nodes)]
 # Tempdata as factor
 tempdata = as.data.frame(lapply(tempdata, as.factor))
@@ -240,15 +266,26 @@ tempdata = as.data.frame(lapply(tempdata, as.factor))
 
 ```{r}
 # Nodes in the model
-# Fit the model
+# Fit the model on the training data
 fittedModel = bn.fit(dagmodel, data = tempdata, method = 'bayes')
-fittedNet = bn.net(fittedModel)
+# Impute the missing data
 imputedData = impute(fittedModel, tempdata, method = "bayes-lw", n=5000)
+# Fit the model on the imputed data
 fittedModeli = bn.fit(dagmodel, data = imputedData)
 
 # Plot the Graphs
+fittedNet = bn.net(fittedModel)
 graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
 
+```
+
+
+Pseudocode:
+1. Create a subset of the data with the nodes of interest
+2. calculate the CPT
+3. Ensure the names of the dimensions are correct
+4. Insert the CPT in the model
+```{r}
 # Calculate and insert the local CPTs
 countFIGO = table(combined_FIGO$FIGO, combined_FIGO$PostoperativeGrade)
 cptFIGO = prop.table(countFIGO, 2)
@@ -269,7 +306,8 @@ fittedModeli$MRI_MI = as.table(cptMRI)
 
 # save the model
 ```{r}
-write.net("3. Model/Fitted_Networks/R_WP_MRI_952+Brno.net", fittedModeli)
+url = paste("1. Ally_project/1.3. Model/Fitted_Networks/R_WP_MRI_",postfix,".net", sep = "")
+write.net(url, fittedModeli)
 ```
 
 
@@ -304,9 +342,11 @@ dag = paste("[MyometrialInvasion|PostoperativeGrade]",# [MRI_MI|MyometrialInvasi
             "[Survival5yr|Recurrence:Chemotherapy:Radiotherapy]", sep="")
 
 
-# dagmodel: pre-defined directed acyclic graph (DAG) structure
+# Confert the modelstring to a Directed Acyclic Graph
 dagmodel = model2network(dag)
+# Select for nodes in model
 tempdata = data[, names(dagmodel$nodes)]
+# Tempdata as factor
 tempdata = as.data.frame(lapply(tempdata, as.factor))
 ```
 
@@ -315,14 +355,16 @@ tempdata = as.data.frame(lapply(tempdata, as.factor))
 # Nodes in the model
 # Fit the model
 fittedModel = bn.fit(dagmodel, data = tempdata, method = 'bayes')
-fittedNet = bn.net(fittedModel)
+# Impute the missing data
 imputedData = impute(fittedModel, tempdata, method = "bayes-lw", n=5000)
+# Fit the model on the imputed data
 fittedModeli = bn.fit(dagmodel, data = imputedData)
 
 # Plot the Graphs
+fittedNet = bn.net(fittedModel)
 graphviz.plot(fittedNet, shape = "rectangle", highlight = list("nodes"))
 
-# Calculate and insert the local CPTs
+# Calculate and insert the local CPTs as described above
 countFIGO = table(combined_FIGO$FIGO, combined_FIGO$PostoperativeGrade)
 cptFIGO = prop.table(countFIGO, 2)
 
@@ -336,7 +378,7 @@ laplace_constant = 1
 smoothed_countMSI = countMSI + laplace_constant
 cptMSIsmoothed = prop.table(smoothed_countMSI, c(3, 2))
 
-# names(dimnames(cptMSIsmoothed)) = c("MSI", "LNM", "PostoperativeGrade")
+#names(dimnames(cptMSIsmoothed)) = c("MSI", "LNM", "PostoperativeGrade")
 
 fittedModeli$MSI = as.table(cptMSIsmoothed)
 
@@ -346,7 +388,7 @@ laplace_constant = 1
 smoothed_countPOLE = countPOLE + laplace_constant
 cptPOLEsmoothed = prop.table(smoothed_countPOLE, c(3, 2))
 
-# names(dimnames(cptPOLEsmoothed)) = c("POLE", "PostoperativeGrade", "LNM")
+#names(dimnames(cptPOLEsmoothed)) = c("POLE", "PostoperativeGrade", "LNM")
 
 fittedModeli$POLE = as.table(cptPOLEsmoothed)
 
@@ -354,7 +396,9 @@ fittedModeli$POLE = as.table(cptPOLEsmoothed)
 
 # save the model
 ```{r}
-write.net("3. Model/Fitted_Networks/R_WP_TCGA_952+Brno.net", fittedModeli)
+
+url = paste("1. Ally_project/1.3. Model/Fitted_Networks/R_WP_TCGA_",postfix,".net", sep = "")
+write.net(url, fittedModeli)
 ```
 
 

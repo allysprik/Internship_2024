@@ -7,32 +7,35 @@ Goal of this notebook is to impute the missing values in the MAYO dataset using 
 library(bnlearn)
 library(Rgraphviz)
 
-```
+# Load the data
+MAYO = read.csv(file = "0. Source_files/0.2. Cleaned_data/MAYO_cleaned_model.csv", header=TRUE, colClasses = c(rep
+                                                                                                               ("factor")), sep = ",", na.strings=c(""," ","99","NA"))
+PIP = read.csv(file = "0. Source_files/0.2. Cleaned_data/Casper_PIPENDO_Cleaned.csv", header=TRUE, colClasses = c(rep
+                                                                                                                  ("factor")), sep = ",", na.strings=c(""," ","99","NA"))
 
-
-```{r}
-MAYO = read.csv(file = "0.1. Cleaned_data/MAYO_subdag.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
-PIP = read.csv(file = "0.1. Cleaned_data/Casper_PIPENDO_Cleaned.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
-
+# Define the evidence columns
 evidence_columns = c("ER", "PR", "p53", "L1CAM", "CA125", "Platelets", "PreoperativeGrade","LNM", "LVSI", "Chemotherapy", "Radiotherapy", "Survival1yr", "Survival3yr", "Survival5yr", "Cytology")
 
 
 # Change LNM column name to LNM_o
 # Change LNM_micromacro column name to LNM in MAYO
-# colnames(MAYO)[colnames(MAYO)=="LNM"] <- "LNM_o"
-# colnames(MAYO)[colnames(MAYO)=="LNM_micromacro"] <- "LNM"
+colnames(MAYO)[colnames(MAYO)=="LNM"] <- "LNM_o"
+colnames(MAYO)[colnames(MAYO)=="LNM_micromacro"] <- "LNM"
 
 # Create NA columns in PIP for the variables that are not present in PIP
-# Intersect the column names of MAYO and PIP
+# Find the common column names
 common = intersect(colnames(MAYO), colnames(PIP))
+
 # Create a list of column names that are not present in PIP
 not_in_PIP = setdiff(colnames(MAYO), common)
 not_in_MAYO = setdiff(colnames(PIP), common)
-# Create NA columns in PIP for the variables that are not present in PIP
+
+# Create NA columns in PIP for the variables that are not present in PIP, to make them concatable
 for (i in 1:length(not_in_PIP)) {
   PIP[,not_in_PIP[i]] <- NA
 }
-# Create NA columns in MAYO for the variables that are not present in MAYO
+
+# Create NA columns in MAYO for the variables that are not present in MAYO, to make them concatable
 for (i in 1:length(not_in_MAYO)) {
   MAYO[,not_in_MAYO[i]] <- NA
 }
@@ -40,25 +43,25 @@ for (i in 1:length(not_in_MAYO)) {
 # concatenate MAYO and PIP
 subsetDAG = rbind(MAYO, PIP)
 
+# Save the subsetDAG
 full_dag = subsetDAG
 
+# Select only the preoperative evidence columns
 subsetDAG = subsetDAG[,c(evidence_columns)]
 
 attach(subsetDAG)
 
 ```
 ```{r}
-
 StructureEM <- structural.em(subsetDAG, max.iter = 10000, return.all = TRUE, maximize = 'tabu')
 ```
 
 ```{r}
 # Unpack the data
 dag <- StructureEM$dag
-imputed <- StructureEM$imputed
+imputeddata <- StructureEM$imputed
 Fitted <- StructureEM$fitted
 
-imputeddata = imputed
 class(imputeddata)
 
 # Double-Check whether any NA present
@@ -76,11 +79,12 @@ full_dag <- full_dag[1:nrow(MAYO),]
 full_dag$CA125 <- imputeddata$CA125
 
 # Save only the imputed CA125 column in the whole dataset
-write.table(full_dag, file = "0.2. Imputed_data/MAYO-CA125-Imputed.csv", append = FALSE, quote = TRUE, sep = ";",
+write.table(full_dag, file = "0. Source_files/0.3. Imputed_data/MAYO-CA125-Imputed.csv", append = FALSE, quote =
+        TRUE, sep = ";",
             eol = "\n", na = "NA", dec = ".", row.names = FALSE)
 
-# Save the imputed data
-write.table(imputeddata, file = "0.2. Imputed_data/MAYO-imputed-complete.csv", append = FALSE,
+# Save the wholly imputed data
+write.table(imputeddata, file = "0. Source_files/0.3. Imputed_data/MAYO-imputed-complete.csv", append = FALSE,
             quote = TRUE, sep = ";", col.names = TRUE, row.names = FALSE)
 
 

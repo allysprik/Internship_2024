@@ -16,8 +16,8 @@ library(Rgraphviz)
 library(gRain)
 
 # Load the data
-df_or <- read.csv("0.1. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
-df_brno <- read.csv("0.1. Cleaned_data/Cleaned_Brno_model_complete.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+df_or <- read.csv("0. Source_files/0.2. Cleaned_data/Training+TCGA+JAMA_cleaned.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
+df_brno <- read.csv("0. Source_files/0.2. Cleaned_data/Cleaned_Brno_model_complete.csv", header = TRUE, sep = ",", na.strings = c("NA", "N/A", "N/A ", " ", ""))
 # change name FIGO surgical to FIGO
 colnames(df_brno)[colnames(df_brno) == "FIGO_surgical"] <- "FIGO"
 
@@ -27,25 +27,24 @@ df_brno["CTMRI"] <- NA
 # Get the columns that are in both datasets
 common_cols <- intersect(colnames(df_or), colnames(df_brno))
 
-
+# Select only the common columns
 df_or <- df_or[,common_cols]
 df_brno <- df_brno[,common_cols]
 
-# Load networks
-dag_Or <- model2network(modelstring(read.net("0.3. Original_Casper_files/Results/Casper_fitted_952+Brno.net")))
-dag_NoPlat_NoRest <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_original_952+Brno.net")))
-dag_NoPlat_MRI <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_AddMRIMI_fitted_952+Brno.net")))
-dag_NoPlat_TCGA <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_AddTCGA_1_fitted_952+Brno.net")))
-dag_NoPlat_TCGA_MRI <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WOP_AddMRIMITCGA_fitted_952+Brno.net")))
-dag_Plat_NoRest <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WP_original_952+Brno.net")))
-dag_Plat_TCGA_MRI <- model2network(modelstring(read.net("3. Model/Fitted_Networks/R_WP_all_952+Brno.net")))
+# Load networks, change them to modelstring, and then to networks - This clears the CPTs
+dag_Or <- model2network(modelstring(read.net("0. Source_files/0.4. Original_Casper_files/Results/Casper_fitted_952+Brno.net")))
+dag_NoPlat_NoRest <- model2network(modelstring(read.net("1. ALly_project/1.3. Model/Fitted_Networks/R_WOP_original_952+Brno.net")))
+dag_NoPlat_MRI <- model2network(modelstring(read.net("1. ALly_project/1.3. Model/Fitted_Networks/R_WOP_AddMRIMI_fitted_952+Brno.net")))
+dag_NoPlat_TCGA <- model2network(modelstring(read.net("1. ALly_project/1.3. Model/Fitted_Networks/R_WOP_AddTCGA_1_fitted_952+Brno.net")))
+dag_NoPlat_TCGA_MRI <- model2network(modelstring(read.net("1. ALly_project/1.3. Model/Fitted_Networks/R_WOP_AddMRIMITCGA_fitted_952+Brno.net")))
+dag_Plat_NoRest <- model2network(modelstring(read.net("1. ALly_project/1.3. Model/Fitted_Networks/R_WP_952.net")))
+dag_Plat_TCGA_MRI <- model2network(modelstring(read.net("1. ALly_project/1.3. Model/Fitted_Networks/R_WP_all_952+Brno.net")))
 
 ```
 
 ```{r}
+# Create equal sized folds of the dataset
 folds <- createFolds(df_brno$LNM, k =5, list=TRUE, returnTrain = TRUE)
-
-
 ```
 
 ```{r}
@@ -62,6 +61,7 @@ for (i in 1:6){
 
 getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
   networks <- list()
+  # If loc variable is given as 1, change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence - This is only for the original network
   if (loc == 1){
     # Change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence
     colnames(df_brno)[colnames(df_brno) == "Recurrence"] <- "Recurrence_bi"
@@ -71,8 +71,11 @@ getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
     colnames(df_or)[colnames(df_or) == "Recurrence_location"] <- "Recurrence"
   }
 
+  # Loop over the folds
   for (i in 1:6){
+    # Get the network
     network <- bNet
+    # Get the node names
     nodenames <- names(network$nodes)
     # Get the fold
     brno_fold <- df_brno[folds[[i]],]
@@ -83,11 +86,14 @@ getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
     # Train and get the networks
     data <- as.data.frame(lapply(data[,nodenames], as.factor))
 
+    # Fit the network
     fittedModel <- bnlearn::bn.fit(network, data = data, method = 'bayes', iss=2)
+    # Impute the data
     imputedData <- bnlearn::impute(fittedModel, data, method = "bayes-lw", n=5000)
+    # Fit the network again
     fittedModeli <- bnlearn::bn.fit(network, data = imputedData, method = 'bayes', iss=2)
 
-
+    # If FIGO is given as in, insert local CPTs
     if (FIGO == 1){
       combined_FIGO <- data.frame(FIGO = data$FIGO, PostoperativeGrade = imputedData$PostoperativeGrade)
       combined_FIGO <- combined_FIGO[complete.cases(combined_FIGO), ]
@@ -101,6 +107,7 @@ getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
       fittedModeli$FIGO = as.table(cptFIGO)
     }
 
+    # If TCGA is given as in, insert local CPTs
     if (TCGA == 1){
       combined_MSI_POLE <- data.frame(MSI = data$MSI, POLE=data$POLE , LNM = imputedData$LNM, PostoperativeGrade = imputedData$PostoperativeGrade)
       combined_MSI_POLE <- combined_MSI_POLE[complete.cases(combined_MSI_POLE), ]
@@ -125,6 +132,7 @@ getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
       fittedModeli$POLE = as.table(cptPOLEsmoothed)
     }
 
+    # If MRI is given as in, insert local CPTs
     if (MRI == 1){
       combined_MRI_MI <- data.frame(MRI_MI = data$MRI_MI, MyometrialInvasion = imputedData$MyometrialInvasion)
       combined_MRI_MI <- combined_MRI_MI[complete.cases(combined_MRI_MI), ]
@@ -138,10 +146,11 @@ getNetworks <- function(bNet, loc = 0, FIGO = 1, TCGA = 0, MRI = 0) {
       fittedModeli$MRI_MI = as.table(cptMRI)
     }
 
+    # Save the network into the list
     networks[[i]] <- fittedModeli
   }
 
-  # Change the names back if changed
+  # Change the names of the columns back if changed
     if (loc == 1){
         # Change the name of the column Recurrence to Recurrence_bi and Recurrence_location to Recurrence
         colnames(df_brno)[colnames(df_brno) == "Recurrence_bi"] <- "Recurrence"
@@ -173,7 +182,9 @@ networks_Plat_NoRest <- getNetworks(dag_Plat_NoRest, FIGO = 0)
 print("Started 7")
 networks_Plat_TCGA_MRI <- getNetworks(dag_Plat_TCGA_MRI, TCGA = 1, MRI = 1)
 
+# You will get some errors here, but that is okay, the networks are still created
 ```
+
 
 
 ### Validation of the different sets
@@ -182,10 +193,13 @@ networks_Plat_TCGA_MRI <- getNetworks(dag_Plat_TCGA_MRI, TCGA = 1, MRI = 1)
 
 evidence_columns <- c("PreoperativeGrade", "MRI_MI", "CA125", "Platelets", "L1CAM", "ER", "PR", "p53", "POLE", "MSI","CTMRI", "Histology", "Cytology")
 
+# Define a function to get the results, takes the networks as input
 getResults <- function(networks){
+  # Create a list to store the results
   results <- list()
+  # Loop over the folds
   for (i in 1:6){
-    # Get the fold
+    # Get the test set fold
     test <- testsets[[i]]
     # Get the network
     network <- as.grain(networks[[i]])
@@ -195,22 +209,25 @@ getResults <- function(networks){
     common <- intersect(nodenames, evidence_columns)
     # Get the test data
     test <- as.data.frame(lapply(test[,common], as.factor))
-    # Get the predictions
+    # initialize the predictions
     predictions <- list()
 
-
+    # Loop over the test set
     for (j in 1:nrow(test)){
+      # Get the evidence row
       evidence <- as.list(test[j,])
+      # Remove the NA values
       evidence <- as.data.frame(evidence[!is.na(evidence)])
-
-      prediction <- predict(network, response =c("LNM","Survival5yr"), newdata = evidence, type="distribution") # Select the yes value from the nodes to make life easier
-
+      # Predict the values on LNM and Survival5yr
+      prediction <- predict(network, response =c("LNM","Survival5yr"), newdata = evidence, type="distribution")
+      # Save the predictions
       predictions$LNM[[j]] <- prediction$pred$LNM[[2]]
       predictions$Surv[[j]] <- prediction$pred$Survival5yr[[2]]
     }
+    # Save the predictions
     results[[i]] <- predictions
-    # Get the results
   }
+  # Return the results
   return (results)
 }
 
@@ -239,35 +256,27 @@ results_Plat_TCGA_MRI <- getResults(networks_Plat_TCGA_MRI)
 # Unpack the results
 for (i in 1:6){
   # Save each of the results and the test set in a csv file, where the name is the result name + the fold number
-  write.csv(results_Or[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_Or_LNM_", i, ".csv"))
-  write.csv(results_Or[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_Or_Surv_", i, ".csv"))
+  write.csv(results_Or[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_Or_LNM_", i, ".csv"))
+  write.csv(results_Or[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_Or_Surv_", i, ".csv"))
 
-  write.csv(results_NoPlat_NoRest[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_NoRest_LNM_", i, ".csv"))
-  write.csv(results_NoPlat_NoRest[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_NoRest_Surv_", i, ".csv"))
+  write.csv(results_NoPlat_NoRest[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_NoRest_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_NoRest[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_NoRest_Surv_", i, ".csv"))
 
-  write.csv(results_NoPlat_MRI[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_MRI_LNM_", i, ".csv"))
-  write.csv(results_NoPlat_MRI[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_MRI_Surv_", i, ".csv"))
+  write.csv(results_NoPlat_MRI[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_MRI_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_MRI[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_MRI_Surv_", i, ".csv"))
 
-  write.csv(results_NoPlat_TCGA[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_LNM_", i, ".csv"))
-  write.csv(results_NoPlat_TCGA[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_Surv_", i, ".csv"))
+  write.csv(results_NoPlat_TCGA[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_TCGA[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_Surv_", i, ".csv"))
 
-  write.csv(results_NoPlat_TCGA_MRI[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_MRI_LNM_", i, ".csv"))
-  write.csv(results_NoPlat_TCGA_MRI[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_MRI_Surv_", i, ".csv"))
+  write.csv(results_NoPlat_TCGA_MRI[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_MRI_LNM_", i, ".csv"))
+  write.csv(results_NoPlat_TCGA_MRI[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_NoPlat_TCGA_MRI_Surv_", i, ".csv"))
 
-  write.csv(results_Plat_NoRest[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_Plat_NoRest_LNM_", i, ".csv"))
-  write.csv(results_Plat_NoRest[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_Plat_NoRest_Surv_", i, ".csv"))
+  write.csv(results_Plat_NoRest[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_Plat_NoRest_LNM_", i, ".csv"))
+  write.csv(results_Plat_NoRest[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_Plat_NoRest_Surv_", i, ".csv"))
 
-  write.csv(results_Plat_TCGA_MRI[[i]]$LNM, paste0("4. Model_analysis/Transfer_results/Results_Plat_TCGA_MRI_LNM_", i, ".csv"))
-  write.csv(results_Plat_TCGA_MRI[[i]]$Surv, paste0("4. Model_analysis/Transfer_results/Results_Plat_TCGA_MRI_Surv_", i, ".csv"))
+  write.csv(results_Plat_TCGA_MRI[[i]]$LNM, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_Plat_TCGA_MRI_LNM_", i, ".csv"))
+  write.csv(results_Plat_TCGA_MRI[[i]]$Surv, paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Results_Plat_TCGA_MRI_Surv_", i, ".csv"))
 
-  write.csv(testsets[[i]], paste0("4. Model_analysis/Transfer_results/Testset_", i, ".csv"))
+  write.csv(testsets[[i]], paste0("1. ALly_project/1.4. Model_analysis/Transfer_results/Testset_", i, ".csv"))
 }
-```
-
-```{r}
-
-```
-
-```{r}
-
 ```

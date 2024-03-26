@@ -1,6 +1,6 @@
 # Model folder readme file
 Author: Ally Sprik \
-Last edit: 2024-02-26
+Last edit: 2024-02-28
 
 ## Description
 This  folder contains the files I used to generate specific results for my internship thesis. They are more or less named for the specific section they generate results for. Most files use both the Brno and Tubingen dataset, but some only use the Brno dataset when imaging MI data is necessary. 

@@ -10,6 +10,11 @@ library(Rgraphviz)
 
 # The necessary subsets are created in the data-cleaning.R 
 # Transform the modelstring (bayesian network) to Directed Acyclic Graph
+# Define Directed Acyclic Graph (DAG) structure
+# It is a string that defines the structure of the Bayesian network according to the following rules:
+# [node1|node2:node3] means that node1 is dependent on node2 and node3
+# A node must be defined before it can be used as a parent node
+# each bracket pair defines a node and its parents
 
 dag = paste("[MyometrialInvasion|PostoperativeGrade][MRI_MI|MyometrialInvasion]",
             "[Cytology|PostoperativeGrade]",
@@ -39,25 +44,21 @@ dagmodel = model2network(dag)
 graphviz.plot(dagmodel, shape = "rectangle", highlight = list("nodes"))
 
 
-# Create the bn.fit object (i.e. with parameters)
-# Both the number and names of nodes should be the 
-# same in "Dag" and the dataset
-# ---------------------------------------------------
-# fit the parameters of the local distributions given 
-# its structure and a data set -> in a form of 
-# conditional probability tables. 
 
-# subsetDAG: data frame with data to be imputed.
-subsetDAG = read.csv(file = "0.1. Cleaned_data/MAYO_subdag.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
+# Load the data for imputation
+subsetDAG = read.csv(file = "0. Source_files/0.2. Cleaned_data/MAYO_cleaned_model.csv", header=TRUE, colClasses = c(rep("factor")), sep = ",", na.strings=c(""," ","99","NA"))
 attach(subsetDAG)
+
+# Select the network nodes as columns from the dataset
+subsetDAG = subsetDAG[, names(dagmodel$nodes)]
 
 # fittedDAG: the fitted Bayesian network model resulting from bn.fit()
 # bn.fit(): parameter learning to estimate conditional probabilities
 #         : method - Bayesian estimation; structure - dagmodel; data - subsetDAG
-fittedDAG = bn.fit(dagmodel, data = subsetDAG, method = "bayes")
-# graphviz.chart(fittedDAG, type = "barprob")
 
-# 2. Imputation
+fittedDAG = bn.fit(dagmodel, data = subsetDAG, method = "bayes")
+
+# 1.2. Imputation
 imputeddata = impute(fittedDAG, subsetDAG, method = "bayes-lw", n = 5000) 
 class(imputeddata)
 
@@ -71,9 +72,10 @@ summary(imputeddata)
 # ------------------------------------------------------
 subsetDAG$CA125 <- imputeddata$CA125
 
-write.table(subsetDAG, file = "0.2. Imputed_data/MAYO-CA125-Imputed.csv", append = FALSE, quote = TRUE, sep = ";",
+write.table(subsetDAG, file = "0. Source_files/0.3. Imputed_data/MAYO-CA125-Imputed.csv", append = FALSE, quote = TRUE, sep = ";",
             eol = "\n", na = "NA", dec = ".", row.names = FALSE)
-# Save the imputed data
-write.table(imputeddata, file = "0.2. Imputed_data/MAYO-imputed-complete.csv", append = FALSE,
+
+# Save the completely imputed data
+write.table(imputeddata, file = "0. Source_files/0.3. Imputed_data/MAYO-imputed-complete.csv", append = FALSE,
             quote = TRUE, sep = ";", col.names = TRUE, row.names = FALSE)
 
